@@ -1,0 +1,9 @@
+# Prompt de implementação: Agente Gerente com CrewAI
+
+Implemente uma equipe multiagente em Python com a versão estável mais recente do CrewAI. Use `Process.hierarchical` e crie explicitamente um `manager_agent` com `LLM(model="gpt-4o", temperature=0.2)`. Não use `manager_llm` junto de `manager_agent`: escolha o gerente customizado para manter papel, critérios de qualidade e regras de delegação sob controle.
+
+O gerente deve coordenar, delegar, revisar e consolidar o trabalho, sem ferramentas próprias. Crie dois especialistas, ambos com `allow_delegation=False`, parametrizados por `profissao_1` e `profissao_2`. Receba um payload JSON com os campos obrigatórios `objetivo`, `profissao_1`, `profissao_2` e o campo opcional `contexto`. Valide os campos antes de iniciar.
+
+Defina três tarefas detalhadas: uma análise técnica do Especialista 1, uma análise complementar do Especialista 2 e uma consolidação do gerente. A entrega consolidada precisa conter resumo executivo, plano priorizado, responsáveis por competência, critérios de aceitação, riscos, métricas e próximo passo. Habilite planejamento, limite o ritmo de chamadas e mantenha a chave da OpenAI exclusivamente em `OPENAI_API_KEY`.
+
+Integre a equipe à governança Stiven. Stiven é uma skill, não uma biblioteca Python: o orquestrador deve executar a classificação antes de chamar a equipe e anexar `governanca_stiven` ao evento, com `decisao`, `classificacao` e `controles`. Exponha `processar_solicitacao_steven(evento: dict) -> dict`. Essa função só pode iniciar a CrewAI quando a decisão for `autorizado automaticamente` ou `autorizado com controles`; para `requer confirmação do usuário`, `bloqueado` ou ausência de decisão, ela deve retornar o estado sem fazer chamadas ao modelo. Quando autorizada, a resposta deve conter `resultado` e métricas de uso quando disponíveis. Inclua `requirements.txt`, `.env.example`, instruções de execução e uma separação clara entre equipe e ponte de governança.
