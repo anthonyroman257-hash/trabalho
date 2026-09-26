@@ -22,6 +22,7 @@ class Solicitacao:
     profissao_1: str = "Arquiteto de Software"
     profissao_2: str = "Desenvolvedor Full Stack"
     contexto: str = ""
+    decisoes_confirmadas: str = ""
 
 
 RESTRICOES = (
@@ -29,6 +30,15 @@ RESTRICOES = (
     "dados pessoais ou resultados de pesquisa. Não acesse produção, bancos remotos, "
     "credenciais, arquivos fora do projeto ou serviços externos sem autorização humana explícita."
 )
+
+PROTOCOLO_GRILL_ME = """
+Você aplica o protocolo Grill Me antes da implementação. Mapeie o pedido como
+uma árvore de decisões. Em cada rodada, pergunte somente decisões cuja base já
+esteja resolvida; informe uma recomendação para cada pergunta. Fatos que possam
+ser verificados no projeto são responsabilidade sua, não perguntas ao usuário.
+Não transforme hipóteses em requisitos e não inicie implementação enquanto o
+usuário não confirmar que as decisões foram entendidas e registradas.
+""".strip()
 
 
 def _modelo() -> LLM:
@@ -52,7 +62,7 @@ def _agente(role: str, goal: str, backstory: str, llm: LLM, *, delega: bool = Fa
 
 
 def criar_equipe(solicitacao: Solicitacao) -> Crew:
-    """Monta sete agentes e oito tarefas supervisionadas pelo gerente."""
+    """Monta a equipe após a fase de descoberta Grill Me confirmada."""
     llm = _modelo()
     contexto = solicitacao.contexto or "Nenhum contexto adicional foi informado."
 
@@ -63,6 +73,12 @@ def criar_equipe(solicitacao: Solicitacao) -> Crew:
         llm,
         delega=True,
     )
+    entrevistador = _agente(
+        "Facilitador de Descoberta Grill Me",
+        "Eliminar ambiguidades e transformar intenção em decisões confirmadas antes do desenvolvimento.",
+        f"{PROTOCOLO_GRILL_ME}\nVocê é direto, construtivo e não presume respostas.",
+        llm,
+    )
     arquiteto = _agente("Arquiteto de Software", "Definir uma arquitetura simples, sustentável e justificável.", "Você decompõe sistemas em componentes, fluxos de dados e decisões técnicas.", llm)
     frontend = _agente("Desenvolvedor Front-End", "Projetar uma interface acessível, responsiva e clara.", "Você entrega componentes, comportamento de busca e estados vazios.", llm)
     backend = _agente("Desenvolvedor Back-End e APIs", "Definir uma camada de dados e APIs segura e testável quando necessária.", "Você propõe contratos de API, validações e tratamento de erros sem chamar serviços reais.", llm)
@@ -70,10 +86,20 @@ def criar_equipe(solicitacao: Solicitacao) -> Crew:
     qa = _agente("Engenheiro de QA", "Verificar critérios de aceitação e cenários de falha antes da entrega.", "Você cria casos de teste claros, identifica lacunas e evita alegar testes não executados.", llm)
     seguranca = _agente("Especialista em Segurança", "Revisar privacidade, exposição de dados e riscos de segurança.", "Você aplica minimização de dados e não recomenda expor números pessoais sem validação.", llm)
 
+    briefing_confirmado = Task(
+        description=(
+            f"Revise o objetivo: {solicitacao.objetivo}\n\nContexto: {contexto}\n\n"
+            f"Decisões confirmadas pelo usuário: {solicitacao.decisoes_confirmadas}\n\n"
+            "Converta somente as decisões confirmadas em um briefing de desenvolvimento. "
+            "Marque qualquer lacuna restante como pendência; não a preencha por suposição."
+        ),
+        expected_output="Briefing confirmado com objetivo, escopo, restrições, critérios de aceitação, pendências e itens fora de escopo.",
+        agent=entrevistador,
+    )
     analise = Task(
         description=(f"Analise a solicitação: {solicitacao.objetivo}\n\nContexto: {contexto}\n\n"
                      "Defina escopo, ambiguidades, critérios de aceitação, módulos, dados a validar e itens que exigem aprovação humana."),
-        expected_output="Documento de análise com escopo, critérios de aceitação, premissas e riscos.", agent=gerente)
+        expected_output="Documento de análise com escopo, critérios de aceitação, premissas e riscos.", agent=gerente, context=[briefing_confirmado])
     arquitetura = Task(
         description="Com base na análise, proponha componentes, fluxo de dados, tecnologias e decisões arquiteturais justificadas.",
         expected_output="Arquitetura textual com componentes, fluxo e riscos técnicos.", agent=arquiteto, context=[analise])
@@ -97,8 +123,8 @@ def criar_equipe(solicitacao: Solicitacao) -> Crew:
         expected_output="Relatório final em Markdown, objetivo e pronto para revisão humana.", agent=gerente, context=[testes, revisao_seguranca])
 
     return Crew(
-        agents=[gerente, arquiteto, frontend, backend, banco, qa, seguranca],
-        tasks=[analise, arquitetura, interface, api, dados, testes, revisao_seguranca, consolidacao],
+        agents=[gerente, entrevistador, arquiteto, frontend, backend, banco, qa, seguranca],
+        tasks=[briefing_confirmado, analise, arquitetura, interface, api, dados, testes, revisao_seguranca, consolidacao],
         manager_agent=gerente,
         process=Process.hierarchical,
         planning=False,
@@ -107,16 +133,56 @@ def criar_equipe(solicitacao: Solicitacao) -> Crew:
     )
 
 
+def iniciar_grill_me(payload: dict[str, Any]) -> dict[str, Any]:
+    """Executa somente a rodada de descoberta, sem iniciar o desenvolvimento."""
+    objetivo = str(payload.get("objetivo", "")).strip()
+    if not objetivo:
+        raise ValueError("O campo obrigatório 'objetivo' está ausente.")
+    contexto = str(payload.get("contexto", "")).strip() or "Nenhum contexto adicional foi informado."
+    entrevistador = _agente(
+        "Facilitador de Descoberta Grill Me",
+        "Conduzir uma rodada de decisões antes de qualquer planejamento ou implementação.",
+        f"{PROTOCOLO_GRILL_ME}\nNão escreva código, plano técnico completo nem instruções de execução.",
+        _modelo(),
+    )
+    rodada = Task(
+        description=(
+            f"Pedido a esclarecer: {objetivo}\n\nContexto disponível: {contexto}\n\n"
+            "Produza a primeira fronteira de decisões. Use perguntas numeradas no formato "
+            "'❓ Qn — título' e, abaixo de cada pergunta, '➡️ Recomendação'. "
+            "Inclua apenas decisões que podem ser respondidas agora."
+        ),
+        expected_output="Uma rodada objetiva de perguntas e recomendações, sem iniciar a implementação.",
+        agent=entrevistador,
+    )
+    resultado = Crew(agents=[entrevistador], tasks=[rodada], process=Process.sequential, verbose=True).kickoff(inputs=payload)
+    return {
+        "status": "aguardando_decisoes_do_grill_me",
+        "perguntas": str(resultado),
+        "proxima_acao": "Responda às perguntas e execute novamente com decisoes_confirmadas e modo='executar'.",
+    }
+
+
 def executar(payload: dict[str, Any]) -> dict[str, Any]:
     """Recebe JSON e retorna o resultado serializável para o orquestrador local."""
     objetivo = str(payload.get("objetivo", "")).strip()
     if not objetivo:
         raise ValueError("O campo obrigatório 'objetivo' está ausente.")
+    modo = str(payload.get("modo", "grill")).strip().lower()
+    if modo in {"grill", "descoberta", "grill-me"}:
+        return iniciar_grill_me(payload)
+    decisoes_confirmadas = str(payload.get("decisoes_confirmadas", "")).strip()
+    if not decisoes_confirmadas:
+        return {
+            "status": "bloqueado_por_decisoes_nao_confirmadas",
+            "mensagem": "Inicie com modo='grill'. A equipe só planeja ou implementa após decisões confirmadas.",
+        }
     solicitacao = Solicitacao(
         objetivo=objetivo,
         profissao_1=str(payload.get("profissao_1", "Arquiteto de Software")),
         profissao_2=str(payload.get("profissao_2", "Desenvolvedor Full Stack")),
         contexto=str(payload.get("contexto", "")),
+        decisoes_confirmadas=decisoes_confirmadas,
     )
     resultado = criar_equipe(solicitacao).kickoff(inputs=payload)
     return {"resultado": str(resultado), "uso_de_tokens": getattr(resultado, "token_usage", None)}

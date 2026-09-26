@@ -14,9 +14,25 @@ Um modelo local não cobra por tokens, mas precisa de espaço em disco e capacid
 
 ## Executar
 
+### Etapa 1 — Grill Me: decidir antes de construir
+
+Antes de planejar ou escrever código, inicie a descoberta. O entrevistador local faz perguntas de decisão e recomenda uma opção para cada uma; ele não inicia implementação nessa etapa.
+
 ```powershell
-python run.py '{"objetivo":"Criar um site simples que liste lanchonetes de Matupá-MT e exiba WhatsApp somente quando verificado.", "contexto":"Não pesquisar nem inventar estabelecimentos, endereços ou telefones."}'
+python run.py '{"objetivo":"Criar um site simples de lanchonetes em Matupá-MT", "modo":"grill", "contexto":"Mostrar WhatsApp somente se estiver publicamente verificado."}'
 ```
+
+Responda às perguntas e reúna as decisões confirmadas em texto.
+
+### Etapa 2 — Planejar e desenvolver
+
+Somente com o resumo confirmado, execute a equipe completa:
+
+```powershell
+python run.py '{"objetivo":"Criar um site simples que liste lanchonetes de Matupá-MT e exiba WhatsApp somente quando verificado.", "modo":"executar", "decisoes_confirmadas":"Diretório público, busca por nome, WhatsApp apenas para contatos verificados e sem cadastro de usuários.", "contexto":"Não pesquisar nem inventar estabelecimentos, endereços ou telefones."}'
+```
+
+O prompt reutilizável da etapa está em `prompt_ligar_grill_me.md`. No Codex, a skill instalada pode ser chamada diretamente na próxima conversa com `$grill-me`; ela usa a skill complementar `grilling`.
 
 ## Conectar ao Stiven
 
